@@ -63,9 +63,10 @@ class DataRefreshWorker(QThread):
 class DataController(QObject):
     """数据控制器"""
 
-    def __init__(self):
+    def __init__(self, fetcher_type: str = "mock"):
         super().__init__()
-        self.fund_manager = get_fund_manager()
+        self.fetcher_type = fetcher_type
+        self.fund_manager = get_fund_manager(fetcher_type)
         self.signal_manager = get_signal_manager()
         self.refresh_worker: Optional[DataRefreshWorker] = None
         self.last_refresh_time: Optional[datetime] = None
@@ -265,6 +266,23 @@ class DataController(QObject):
             logger.error(f"获取所有基金数据失败: {e}")
             return []
 
+    def get_price_history(self, fund_code: str, days: int = 3) -> List[Dict[str, Any]]:
+        """
+        获取基金历史价格数据（包含溢价率）
+        
+        Args:
+            fund_code: 基金代码
+            days: 获取最近多少天的数据
+            
+        Returns:
+            List[Dict]: 历史价格数据
+        """
+        try:
+            return self.fund_manager.get_price_history(fund_code, days)
+        except Exception as e:
+            logger.error(f"获取历史价格数据失败: {e}")
+            return []
+
     def get_filtered_funds(self, filter_params: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         获取筛选后的基金数据
@@ -294,37 +312,17 @@ class DataController(QObject):
 
     def _apply_filters(self, funds: List[Dict[str, Any]], filters: Dict[str, Any]) -> List[Dict[str, Any]]:
         """应用筛选条件"""
-        filtered = []
-
-        for fund in funds:
-            # 基金类型筛选
-            fund_type = filters.get("fund_type", "all")
-            if fund_type != "all" and fund.get("type") != fund_type:
-                continue
-
-            # 价差范围筛选
-            min_spread = filters.get("min_spread", -10.0)
-            max_spread = filters.get("max_spread", 10.0)
-            spread_pct = fund.get("spread_pct", 0)
-
-            if not (min_spread <= spread_pct <= max_spread):
-                continue
-
-            # 机会等级筛选
-            opportunity_levels = filters.get("opportunity_levels", [])
-            opportunity_level = fund.get("opportunity_level", "none")
-
-            if opportunity_levels and opportunity_level not in opportunity_levels:
-                continue
-
-            # 只显示套利机会
-            only_opportunities = filters.get("only_opportunities", False)
-            if only_opportunities and not fund.get("is_opportunity", False):
-                continue
-
-            filtered.append(fund)
-
-        return filtered
+        from src.models.data_cleaner import get_data_cleaner
+        
+        cleaner = get_data_cleaner()
+        
+        # 1. 首先应用系统清洗规则（排除脏数据）
+        cleaned_funds = cleaner.clean(funds)
+        
+        # 2. 然后应用用户筛选条件
+        filtered_funds = cleaner.apply_user_filters(cleaned_funds, filters)
+        
+        return filtered_funds
 
     def _apply_sorting(self, funds: List[Dict[str, Any]], filters: Dict[str, Any]) -> List[Dict[str, Any]]:
         """应用排序"""
@@ -393,6 +391,22 @@ class DataController(QObject):
             error_result = {"error": str(e)}
             self.signal_manager.emit_error_occurred("fund_detail_error", str(e))
             return error_result
+
+    def get_fund_trends(self, fund_code: str) -> List[Dict[str, Any]]:
+        """
+        获取基金分时走势
+        
+        Args:
+            fund_code: 基金代码
+            
+        Returns:
+            List[Dict]: 分时数据列表
+        """
+        if self.fund_manager and hasattr(self.fund_manager, "fetcher"):
+            if hasattr(self.fund_manager.fetcher, "fetch_fund_trends"):
+                # 注意：这是个网络请求，可能会阻塞 UI 一小会儿
+                return self.fund_manager.fetcher.fetch_fund_trends(fund_code)
+        return []
 
     def export_to_csv(self, file_path: str) -> bool:
         """

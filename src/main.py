@@ -50,8 +50,17 @@ def main():
         app.setOrganizationName("FundArbitrageMonitor")
 
         # 设置高DPI支持
-        app.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
-        app.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
+        try:
+            # PyQt6 >= 6.10.0 使用这种方式
+            app.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+            app.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+        except AttributeError:
+            try:
+                # PyQt6 < 6.10.0 使用旧方式
+                app.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
+                app.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
+            except AttributeError:
+                logger.warning("高DPI属性不可用，跳过设置")
 
         # 导入并创建主窗口
         try:

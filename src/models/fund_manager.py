@@ -132,6 +132,7 @@ class FundManager:
                 "timestamp": datetime.now().isoformat(),
             }
 
+
     def _process_fund_data(self, fund_data_list: List[Dict[str, Any]], fund_type: str) -> Dict[str, Any]:
         """
         处理基金数据
@@ -146,62 +147,95 @@ class FundManager:
         opportunities = 0
 
         for fund_data in fund_data_list:
-            try:
-                # 保存基金基本信息
-                fund_info = {
-                    "code": fund_data["code"],
-                    "name": fund_data["name"],
-                    "type": fund_type,
-                    "exchange": "SZ" if fund_data["code"].startswith("15") else "SH",
-                    "currency": "CNY",
-                    "management_fee": 0.5 if fund_type == "ETF" else 1.5,
+            if self._process_single_fund(fund_data, fund_type):
+                opportunities += 1
+
+        return {"opportunities": opportunities}
+
+    def _process_single_fund(self, fund_data: Dict[str, Any], fund_type: str) -> bool:
+        """
+        处理单个基金数据
+        
+        Args:
+            fund_data: 基金数据字典
+            fund_type: 基金类型
+            
+        Returns:
+            bool: 是否有套利机会
+        """
+        try:
+            # 保存基金基本信息
+            fund_info = {
+                "code": fund_data["code"],
+                "name": fund_data["name"],
+                "type": fund_type,
+                "exchange": "SZ" if fund_data["code"].startswith("15") else "SH",
+                "currency": "CNY",
+                "management_fee": 0.5 if fund_type == "ETF" else 1.5,
+            }
+            self.db.save_fund(fund_info)
+
+            # 计算套利机会
+            nav = Decimal(str(fund_data.get("nav", 0)))
+            price = Decimal(str(fund_data.get("price", 0)))
+
+            if nav > 0 and price > 0:
+                arbitrage_result = self.calculator.calculate_arbitrage(
+                    fund_type, float(nav), float(price), fund_data["code"]
+                )
+                
+                # 准备时间戳
+                timestamp = fund_data.get("timestamp", datetime.now().isoformat())
+
+                # 保存价格数据
+                price_record = {
+                    "fund_code": fund_data["code"],
+                    "nav": float(nav),
+                    "price": float(price),
+                    "spread_pct": arbitrage_result["spread_pct"],
+                    "yield_pct": arbitrage_result["net_yield_pct"],
+                    "volume": fund_data.get("volume"),
+                    "amount": fund_data.get("amount"),
+                    "timestamp": timestamp,
+                    "description": arbitrage_result.get("description", ""),
                 }
-                self.db.save_fund(fund_info)
+                self.db.save_fund_price(price_record)
 
-                # 计算套利机会
-                nav = Decimal(str(fund_data.get("nav", 0)))
-                price = Decimal(str(fund_data.get("price", 0)))
-
-                if nav > 0 and price > 0:
-                    arbitrage_result = self.calculator.calculate_arbitrage(
-                        fund_type, float(nav), float(price), fund_data["code"]
-                    )
-
-                    # 保存价格数据
-                    price_record = {
+                is_opportunity = arbitrage_result["is_opportunity"]
+                
+                # 如果有套利机会，保存记录
+                if is_opportunity:
+                    opportunity_record = {
                         "fund_code": fund_data["code"],
+                        "opportunity_type": fund_type,
                         "nav": float(nav),
                         "price": float(price),
                         "spread_pct": arbitrage_result["spread_pct"],
                         "yield_pct": arbitrage_result["net_yield_pct"],
-                        "volume": fund_data.get("volume"),
-                        "amount": fund_data.get("amount"),
-                        "timestamp": fund_data.get("timestamp", datetime.now().isoformat()),
+                        "timestamp": timestamp,
+                        "description": arbitrage_result.get("description", ""),
                     }
-                    self.db.save_fund_price(price_record)
+                    self.db.save_arbitrage_opportunity(opportunity_record)
 
-                    # 如果有套利机会，保存记录
-                    if arbitrage_result["is_opportunity"]:
-                        opportunity_record = {
-                            "fund_code": fund_data["code"],
-                            "opportunity_type": fund_type,
-                            "nav": float(nav),
-                            "price": float(price),
-                            "spread_pct": arbitrage_result["spread_pct"],
-                            "yield_pct": arbitrage_result["net_yield_pct"],
-                            "timestamp": fund_data.get("timestamp", datetime.now().isoformat()),
-                        }
-                        self.db.save_arbitrage_opportunity(opportunity_record)
-                        opportunities += 1
+                # 更新缓存 (包含计算后的数据)
+                # 注意：我们需要缓存完整数据供前台显示
+                full_data = fund_data.copy()
+                full_data.update({
+                    "spread_pct": arbitrage_result["spread_pct"],
+                    "yield_pct": arbitrage_result["net_yield_pct"],
+                    "is_opportunity": is_opportunity,
+                    "opportunity_level": arbitrage_result.get("opportunity_level", "none")
+                })
+                
+                self._fund_cache[fund_data["code"]] = full_data
+                self._price_cache[fund_data["code"]] = price_record
+                
+                return is_opportunity
 
-                    # 更新缓存
-                    self._fund_cache[fund_data["code"]] = fund_info
-                    self._price_cache[fund_data["code"]] = price_record
-
-            except Exception as e:
-                logger.error(f"处理基金数据失败 {fund_data.get('code', 'unknown')}: {e}")
-
-        return {"opportunities": opportunities}
+        except Exception as e:
+            logger.error(f"处理基金数据失败 {fund_data.get('code', 'unknown')}: {e}")
+            
+        return False
 
     def get_funds(self, fund_type: Optional[str] = None) -> List[Dict[str, Any]]:
         """
@@ -339,7 +373,11 @@ class FundManager:
         lof_count = sum(1 for p in all_prices if p.get("type") == "LOF")
         opportunity_count = sum(1 for p in all_prices if p.get("is_opportunity", False))
 
-        spreads = [p.get("spread_pct", 0) for p in all_prices if p.get("spread_pct") is not None]
+        spreads = [
+            p.get("spread_pct", 0) 
+            for p in all_prices 
+            if p.get("spread_pct") is not None and abs(p.get("spread_pct", 0)) <= 200
+        ]
         avg_spread = sum(spreads) / len(spreads) if spreads else 0.0
         max_spread = max(spreads) if spreads else 0.0
         min_spread = min(spreads) if spreads else 0.0
@@ -389,13 +427,16 @@ class FundManager:
         self.db.close()
 
 
-# 全局基金管理器实例
+# 线程安全的单例实现
+import threading
+
 _manager_instance: Optional[FundManager] = None
+_manager_lock = threading.Lock()
 
 
 def get_fund_manager(fetcher_type: str = "mock") -> FundManager:
     """
-    获取基金管理器实例
+    获取基金管理器实例（线程安全）
 
     Args:
         fetcher_type: 数据获取器类型
@@ -405,5 +446,20 @@ def get_fund_manager(fetcher_type: str = "mock") -> FundManager:
     """
     global _manager_instance
     if _manager_instance is None:
-        _manager_instance = FundManager(fetcher_type)
+        with _manager_lock:
+            # 双重检查锁定
+            if _manager_instance is None:
+                _manager_instance = FundManager(fetcher_type)
     return _manager_instance
+
+
+def reset_fund_manager():
+    """重置基金管理器实例（用于测试）"""
+    global _manager_instance
+    with _manager_lock:
+        if _manager_instance is not None:
+            try:
+                _manager_instance.close()
+            except Exception:
+                pass
+            _manager_instance = None

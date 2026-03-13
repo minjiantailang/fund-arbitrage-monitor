@@ -42,10 +42,10 @@ charts = ["PyQt6-Charts>=6.5.0"]
 build = ["pyinstaller>=6.0.0"]
 
 [project.urls]
-Homepage = "https://github.com/username/fund-arbitrage-monitor"
-Documentation = "https://github.com/username/fund-arbitrage-monitor#readme"
-Repository = "https://github.com/username/fund-arbitrage-monitor.git"
-Issues = "https://github.com/username/fund-arbitrage-monitor/issues"
+Homepage = "https://github.com/minjiantailang/fund-arbitrage-monitor"
+Documentation = "https://github.com/minjiantailang/fund-arbitrage-monitor#readme"
+Repository = "https://github.com/minjiantailang/fund-arbitrage-monitor.git"
+Issues = "https://github.com/minjiantailang/fund-arbitrage-monitor/issues"
 
 [tool.black]
 line-length = 88
@@ -89,6 +89,52 @@ warn_unused_ignores = true
 warn_no_return = true
 warn_unreachable = true
 strict_equality = true
+
+[tool.ruff]
+target-version = "py39"
+line-length = 88
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "C",    # flake8-comprehensions
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by black)
+    "B008",  # function call in default argument
+    "C901",  # too complex
+]
+
+[tool.ruff.per-file-ignores]
+"tests/*" = ["S101"]  # Allow assert in tests
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "ui: marks tests as UI tests",
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["src/main.py", "*/tests/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
 
 [project.scripts]
 fund-arbitrage-monitor = "src.main:main"

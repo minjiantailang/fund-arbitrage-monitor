@@ -3,13 +3,14 @@
 """
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QFrame, QSizePolicy
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QColor, QPalette
+from .chart_widget import ChartWidget
 
 logger = logging.getLogger(__name__)
 
@@ -22,143 +23,134 @@ class DashboardWidget(QWidget):
 
     def __init__(self):
         super().__init__()
+        self.chart_widget: Optional[ChartWidget] = None
         self._init_ui()
         self._init_data()
 
     def _init_ui(self):
         """初始化UI"""
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(10, 10, 10, 10)
-        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(20)
 
-        # 标题
-        title_label = QLabel("套利机会监控仪表盘")
-        title_font = QFont()
-        title_font.setPointSize(16)
-        title_font.setBold(True)
-        title_label.setFont(title_font)
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main_layout.addWidget(title_label)
-
-        # 统计卡片区域
-        self.stats_container = QWidget()
-        stats_layout = QGridLayout(self.stats_container)
-        stats_layout.setSpacing(10)
-
-        # 创建统计卡片
+        # 1. 统计概览卡片 (顶部区域)
+        stats_frame = QFrame()
+        stats_frame.setObjectName("DashboardCard")
+        # 移除默认背景色，使用 stylesheet 中的设置
+        
+        stats_layout = QVBoxLayout(stats_frame)
+        stats_layout.setContentsMargins(20, 15, 20, 20)
+        stats_layout.setSpacing(15)
+        
+        # 统计标题和元数据
+        header_layout = QHBoxLayout()
+        title_label = QLabel("实时概览")
+        title_label.setObjectName("ChartTitle")
+        header_layout.addWidget(title_label)
+        
+        header_layout.addStretch()
+        
+        # 元数据（更新时间和源）
+        meta_layout = QVBoxLayout()
+        meta_layout.setSpacing(2)
+        meta_layout.setAlignment(Qt.AlignmentFlag.AlignRight)
+        
+        self.last_update_label = QLabel("更新于: --")
+        self.last_update_label.setObjectName("StatLabel")
+        self.last_update_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        
+        self.data_source_label = QLabel("数据源: --")
+        self.data_source_label.setObjectName("StatLabel")
+        self.data_source_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        
+        meta_layout.addWidget(self.last_update_label)
+        meta_layout.addWidget(self.data_source_label)
+        
+        header_layout.addLayout(meta_layout)
+        stats_layout.addLayout(header_layout)
+        
+        # 统计网格
+        grid_layout = QGridLayout()
+        grid_layout.setSpacing(20)
+        
         self.stat_cards = {}
+        # 简化统计项配置
         stat_configs = [
-            ("total_funds", "总基金数", "只", "#4CAF50"),
-            ("etf_count", "ETF基金", "只", "#2196F3"),
-            ("lof_count", "LOF基金", "只", "#FF9800"),
-            ("opportunity_count", "套利机会", "个", "#F44336"),
-            ("avg_spread", "平均价差", "%", "#9C27B0"),
-            ("max_spread", "最大价差", "%", "#FF5722"),
+            ("total_funds", "监控基金", "只"),
+            ("opportunity_count", "套利机会", "个"),
+            ("avg_spread", "平均溢价", "%"),
+            ("max_spread", "最大溢价", "%"),
         ]
+        
+        for i, (key, title, unit) in enumerate(stat_configs):
+            widget = self._create_stat_item(key, title, unit)
+            grid_layout.addWidget(widget, i // 4, i % 4) # 一行4个
+            
+        stats_layout.addLayout(grid_layout)
+        main_layout.addWidget(stats_frame)
 
-        for i, (key, title, unit, color) in enumerate(stat_configs):
-            row = i // 3
-            col = i % 3
-            card = self._create_stat_card(key, title, unit, color)
-            self.stat_cards[key] = card
-            stats_layout.addWidget(card, row, col)
+        # 2. 图表卡片 (主要区域)
+        chart_frame = QFrame()
+        chart_frame.setObjectName("ChartCard")
+        chart_layout = QVBoxLayout(chart_frame)
+        chart_layout.setContentsMargins(1, 1, 1, 1) # 图表本身有边距
+        
+        self.chart_widget = ChartWidget()
+        chart_layout.addWidget(self.chart_widget)
+        
+        main_layout.addWidget(chart_frame, 1) # 让图表区域自适应伸缩
+        
+        # 3. 加载遮罩
+        self.loading_overlay = QLabel(self)
+        self.loading_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.loading_overlay.setStyleSheet("background-color: rgba(255, 255, 255, 180); color: #333; font-weight: bold;")
+        self.loading_overlay.setText("加载中...")
+        self.loading_overlay.hide()
 
-        main_layout.addWidget(self.stats_container)
-
-        # 关键机会区域
-        main_layout.addWidget(self._create_section_label("关键套利机会"))
-
-        self.key_opportunities_container = QWidget()
-        key_opp_layout = QVBoxLayout(self.key_opportunities_container)
-        key_opp_layout.setContentsMargins(0, 0, 0, 0)
-
-        # 关键机会列表（占位符）
-        self.key_opportunities_label = QLabel("暂无关键套利机会")
-        self.key_opportunities_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.key_opportunities_label.setStyleSheet("color: #757575; font-style: italic;")
-        key_opp_layout.addWidget(self.key_opportunities_label)
-
-        main_layout.addWidget(self.key_opportunities_container)
-
-        # 底部状态区域
-        bottom_container = QWidget()
-        bottom_layout = QHBoxLayout(bottom_container)
-        bottom_layout.setContentsMargins(0, 0, 0, 0)
-
-        # 最后更新时间
-        self.last_update_label = QLabel("最后更新: --")
-        self.last_update_label.setStyleSheet("color: #616161; font-size: 12px;")
-        bottom_layout.addWidget(self.last_update_label)
-
-        bottom_layout.addStretch()
-
-        # 数据源状态
-        self.data_source_label = QLabel("数据源: 模拟数据")
-        self.data_source_label.setStyleSheet("color: #616161; font-size: 12px;")
-        bottom_layout.addWidget(self.data_source_label)
-
-        main_layout.addWidget(bottom_container)
-
-    def _create_stat_card(self, key: str, title: str, unit: str, color: str) -> QFrame:
-        """创建统计卡片"""
-        card = QFrame()
-        card.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Raised)
-        card.setStyleSheet(f"""
-            QFrame {{
-                background-color: white;
-                border-radius: 8px;
-                border: 1px solid #E0E0E0;
-            }}
-            QFrame:hover {{
-                border: 2px solid {color};
-            }}
-        """)
-        card.setCursor(Qt.CursorShape.PointingHandCursor)
-
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(15, 15, 15, 15)
-        card_layout.setSpacing(5)
-
+    def _create_stat_item(self, key, title, unit):
+        """创建单个统计项 (无边框样式)"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(5)
+        
         # 标题
         title_label = QLabel(title)
-        title_label.setStyleSheet(f"color: {color}; font-weight: bold; font-size: 14px;")
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        card_layout.addWidget(title_label)
-
-        # 数值
-        value_label = QLabel("--")
-        value_label.setObjectName(f"value_{key}")
-        value_font = QFont()
-        value_font.setPointSize(24)
-        value_font.setBold(True)
-        value_label.setFont(value_font)
-        value_label.setStyleSheet(f"color: {color};")
-        value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        card_layout.addWidget(value_label)
-
-        # 单位
+        title_label.setObjectName("StatLabel")
+        
+        # 值容器
+        value_container = QHBoxLayout()
+        value_container.setSpacing(4)
+        value_container.setContentsMargins(0, 0, 0, 0)
+        
+        value_label = QLabel("0")
+        value_label.setObjectName("StatValue")
+        
         unit_label = QLabel(unit)
-        unit_label.setStyleSheet("color: #757575; font-size: 12px;")
-        unit_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        card_layout.addWidget(unit_label)
-
-        # 点击事件
-        def on_card_clicked():
-            self.statistic_clicked.emit(key)
-
-        card.mousePressEvent = lambda e: on_card_clicked()
-
-        return card
-
-    def _create_section_label(self, text: str) -> QLabel:
-        """创建分区标签"""
-        label = QLabel(text)
-        label_font = QFont()
-        label_font.setPointSize(14)
-        label_font.setBold(True)
-        label.setFont(label_font)
-        label.setStyleSheet("color: #424242; margin-top: 10px; margin-bottom: 5px;")
-        return label
+        unit_label.setObjectName("StatLabel")
+        
+        value_container.addWidget(value_label)
+        value_container.addWidget(unit_label, 0, Qt.AlignmentFlag.AlignBottom) # 单位底部对齐
+        value_container.addStretch()
+        
+        layout.addWidget(title_label)
+        layout.addLayout(value_container)
+        
+        # 保存引用以便后续更新
+        self.stat_cards[key] = {
+            "value_label": value_label,
+            # 兼容旧代码结构，虽然这里不再是特定的 Card 类
+            "widget": widget 
+        }
+        return widget
+        
+    def _create_stat_card(self, key, title, unit, color):
+         # 兼容旧代码调用 (如果还有其他地方调用)
+         return self._create_stat_item(key, title, unit)
+         
+    def _create_section_label(self, text):
+        # 兼容旧代码
+        return QLabel(text)
 
     def _init_data(self):
         """初始化数据"""
@@ -184,8 +176,8 @@ class DashboardWidget(QWidget):
         """
         self.statistics.update(statistics)
 
-        # 更新统计卡片
-        for key, card in self.stat_cards.items():
+        # 更新统计卡片 (新结构: stat_cards[key] = {"value_label": QLabel, "widget": QWidget})
+        for key, card_info in self.stat_cards.items():
             if key in statistics:
                 value = statistics[key]
                 if isinstance(value, float):
@@ -193,32 +185,19 @@ class DashboardWidget(QWidget):
                 else:
                     display_value = str(value)
 
-                # 查找并更新数值标签
-                value_label = card.findChild(QLabel, f"value_{key}")
+                # 直接使用存储的 value_label 引用
+                value_label = card_info.get("value_label")
                 if value_label:
                     value_label.setText(display_value)
 
         # 更新最后更新时间
         last_update = statistics.get("last_update")
         if last_update:
-            self.last_update_label.setText(f"最后更新: {last_update}")
-
-        # 更新关键机会
-        self._update_key_opportunities()
+            self.last_update_label.setText(f"更新于: {last_update}")
 
     def _update_key_opportunities(self):
-        """更新关键机会显示"""
-        opportunity_count = self.statistics.get("opportunity_count", 0)
-
-        if opportunity_count > 0:
-            # TODO: 从控制器获取真实的关键机会数据
-            self.key_opportunities_label.setText(
-                f"发现 {opportunity_count} 个套利机会，请查看右侧基金列表"
-            )
-            self.key_opportunities_label.setStyleSheet("color: #F44336; font-weight: bold;")
-        else:
-            self.key_opportunities_label.setText("暂无关键套利机会")
-            self.key_opportunities_label.setStyleSheet("color: #757575; font-style: italic;")
+        """更新关键机会显示 (已移除关键机会区域，此方法保留空实现以兼容)"""
+        pass
 
     def update_data_source(self, source_name: str):
         """
@@ -267,3 +246,18 @@ class DashboardWidget(QWidget):
             self.last_update_label.setText("正在更新数据...")
         else:
             self.setEnabled(True)
+
+    def update_chart_data(self, chart_data: list):
+        """
+        更新图表数据
+
+        Args:
+            chart_data: 图表数据列表，格式应符合ChartWidget要求
+        """
+        if self.chart_widget:
+            self.chart_widget.set_chart_data(chart_data)
+
+    def update_data_source(self, source_name: str):
+        """更新数据源显示"""
+        display_name = "东方财富 (实时)" if source_name == "eastmoney" else "模拟数据"
+        self.data_source_label.setText(f"数据源: {display_name}")

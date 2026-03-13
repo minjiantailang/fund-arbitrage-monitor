@@ -1,63 +1,106 @@
 """
-信号管理器
+信号管理器 - 简化版，增强调试能力
 """
 
 import logging
-from typing import Callable, Any, Dict
+import threading
+from typing import Callable, Any, Dict, List, Optional
 from PyQt6.QtCore import QObject, pyqtSignal
+from dataclasses import dataclass, field
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class SignalRecord:
+    """信号发射记录（用于调试）"""
+    signal_name: str
+    timestamp: datetime
+    args: tuple
+    handlers_count: int
+
+
 class SignalManager(QObject):
-    """信号管理器"""
+    """
+    信号管理器 - 简化版
+    
+    特性：
+    - 集中管理所有信号
+    - 信号发射追踪（调试模式）
+    - 清晰的连接/断开 API
+    - 线程安全
+    """
 
     # 数据相关信号
-    data_refreshed = pyqtSignal(dict)  # 数据刷新完成
-    data_refresh_started = pyqtSignal()  # 数据刷新开始
-    data_refresh_failed = pyqtSignal(str)  # 数据刷新失败（错误信息）
+    data_refreshed = pyqtSignal(dict)       # 数据刷新完成
+    data_refresh_started = pyqtSignal()     # 数据刷新开始
+    data_refresh_failed = pyqtSignal(str)   # 数据刷新失败
 
     # 基金相关信号
-    fund_selected = pyqtSignal(str)  # 基金被选中
-    fund_double_clicked = pyqtSignal(str)  # 基金被双击
+    fund_selected = pyqtSignal(str)         # 基金被选中
+    fund_double_clicked = pyqtSignal(str)   # 基金被双击
     fund_details_loaded = pyqtSignal(dict)  # 基金详情加载完成
 
     # 筛选相关信号
-    filter_applied = pyqtSignal(dict)  # 筛选条件应用
-    filter_cleared = pyqtSignal()  # 筛选条件清除
+    filter_applied = pyqtSignal(dict)       # 筛选条件应用
+    filter_cleared = pyqtSignal()           # 筛选条件清除
 
     # 状态相关信号
-    status_changed = pyqtSignal(str)  # 状态变化
-    progress_updated = pyqtSignal(int, str)  # 进度更新（进度百分比，消息）
+    status_changed = pyqtSignal(str)        # 状态变化
+    progress_updated = pyqtSignal(int, str) # 进度更新
 
     # 错误相关信号
-    error_occurred = pyqtSignal(str, str)  # 错误发生（错误类型，错误信息）
+    error_occurred = pyqtSignal(str, str)   # 错误发生
 
     def __init__(self):
         super().__init__()
-        self._signal_handlers: Dict[str, list] = {}
+        self._lock = threading.RLock()
+        self._handlers: Dict[str, List[Callable]] = {}
+        self._debug_mode = False
+        self._history: List[SignalRecord] = []
+        self._max_history = 100
+        
         logger.info("信号管理器初始化完成")
 
-    def connect_signal(self, signal_name: str, handler: Callable):
+    def enable_debug(self, enabled: bool = True):
+        """启用/禁用调试模式"""
+        self._debug_mode = enabled
+        logger.info(f"信号管理器调试模式: {'开启' if enabled else '关闭'}")
+
+    def connect_signal(self, signal_name: str, handler: Callable) -> bool:
         """
         连接信号处理器
-
+        
         Args:
             signal_name: 信号名称
             handler: 处理器函数
+            
+        Returns:
+            bool: 是否成功
         """
-        if signal_name not in self._signal_handlers:
-            self._signal_handlers[signal_name] = []
-
-        self._signal_handlers[signal_name].append(handler)
-
-        # 连接到实际的Qt信号
         signal = getattr(self, signal_name, None)
-        if signal:
-            signal.connect(handler)
-            logger.debug(f"连接信号: {signal_name} -> {handler.__name__}")
-        else:
+        if signal is None:
             logger.warning(f"信号不存在: {signal_name}")
+            return False
+        
+        with self._lock:
+            if signal_name not in self._handlers:
+                self._handlers[signal_name] = []
+            
+            # 避免重复连接
+            if handler in self._handlers[signal_name]:
+                logger.debug(f"处理器已连接，跳过: {signal_name} -> {handler.__name__}")
+                return True
+            
+            try:
+                signal.connect(handler)
+                self._handlers[signal_name].append(handler)
+                logger.debug(f"连接信号: {signal_name} -> {handler.__name__}")
+                return True
+            except Exception as e:
+                logger.error(f"连接信号失败: {e}")
+                return False
 
     def disconnect_signal(self, signal_name: str, handler: Callable = None):
         """
@@ -67,31 +110,32 @@ class SignalManager(QObject):
             signal_name: 信号名称
             handler: 处理器函数，如果为None则断开所有处理器
         """
-        if signal_name not in self._signal_handlers:
-            return
-
         signal = getattr(self, signal_name, None)
         if not signal:
             return
 
-        if handler is None:
-            # 断开所有处理器
-            for h in self._signal_handlers[signal_name]:
-                try:
-                    signal.disconnect(h)
-                except Exception:
-                    pass
-            self._signal_handlers[signal_name].clear()
-            logger.debug(f"断开所有信号处理器: {signal_name}")
-        else:
-            # 断开指定处理器
-            if handler in self._signal_handlers[signal_name]:
-                try:
-                    signal.disconnect(handler)
-                    self._signal_handlers[signal_name].remove(handler)
-                    logger.debug(f"断开信号处理器: {signal_name} -> {handler.__name__}")
-                except Exception as e:
-                    logger.warning(f"断开信号处理器失败: {e}")
+        with self._lock:
+            if signal_name not in self._handlers:
+                return
+
+            if handler is None:
+                # 断开所有处理器
+                for h in self._handlers[signal_name]:
+                    try:
+                        signal.disconnect(h)
+                    except Exception:
+                        pass
+                self._handlers[signal_name].clear()
+                logger.debug(f"断开所有信号处理器: {signal_name}")
+            else:
+                # 断开指定处理器
+                if handler in self._handlers[signal_name]:
+                    try:
+                        signal.disconnect(handler)
+                        self._handlers[signal_name].remove(handler)
+                        logger.debug(f"断开信号处理器: {signal_name} -> {handler.__name__}")
+                    except Exception as e:
+                        logger.warning(f"断开信号处理器失败: {e}")
 
     def emit_signal(self, signal_name: str, *args, **kwargs):
         """

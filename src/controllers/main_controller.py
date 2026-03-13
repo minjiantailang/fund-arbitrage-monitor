@@ -21,7 +21,7 @@ class MainController:
         Args:
             fetcher_type: 数据获取器类型
         """
-        self.data_controller = DataController()
+        self.data_controller = DataController(fetcher_type)
         self.signal_manager = get_signal_manager()
         self.current_filters: Dict[str, Any] = {}
 
@@ -90,11 +90,36 @@ class MainController:
     def get_all_funds(self) -> List[Dict[str, Any]]:
         """
         获取所有基金数据
-
+        
         Returns:
             List[Dict]: 基金数据列表
         """
         return self.data_controller.get_all_funds()
+
+    def get_monitor_data(self) -> List[Dict[str, Any]]:
+        """
+        获取监控数据 (get_all_funds的别名)
+        """
+        return self.get_all_funds()
+
+    def get_fund_trends(self, fund_code: str) -> List[Dict[str, Any]]:
+        """
+        获取基金分时走势
+        """
+        return self.data_controller.get_fund_trends(fund_code)
+
+    def get_price_history(self, fund_code: str, days: int = 3) -> List[Dict[str, Any]]:
+        """
+        获取基金历史价格数据（包含溢价率）
+        
+        Args:
+            fund_code: 基金代码
+            days: 获取最近多少天的数据
+            
+        Returns:
+            List[Dict]: 历史价格数据
+        """
+        return self.data_controller.get_price_history(fund_code, days)
 
     def get_filtered_funds(self, filter_params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """
@@ -207,7 +232,7 @@ class MainController:
                 _manager_instance = None
 
             # 重新创建数据控制器
-            self.data_controller = DataController()
+            self.data_controller = DataController(fetcher_type)
 
             logger.info(f"已切换到数据源: {fetcher_type}")
             self.signal_manager.emit_status_changed(f"已切换到数据源: {fetcher_type}")

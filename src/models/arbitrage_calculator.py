@@ -83,7 +83,9 @@ class ArbitrageCalculator:
                 "fee_rate": float(fee_rate * Decimal("100")),
                 "is_opportunity": opportunity_type != "none",
                 "opportunity_level": opportunity_type,
-                "description": self._get_opportunity_description(opportunity_type, net_yield_pct)
+                "description": self._get_opportunity_description(
+                    opportunity_type, net_yield_pct, spread_pct, "ETF"
+                )
             }
 
             logger.debug(f"ETF套利计算 - {fund_code}: 价差={result['spread_pct']}%, 净收益={result['net_yield_pct']}%")
@@ -137,7 +139,9 @@ class ArbitrageCalculator:
                 "fee_rate": float(fee_rate * Decimal("100")),
                 "is_opportunity": opportunity_type != "none",
                 "opportunity_level": opportunity_type,
-                "description": self._get_opportunity_description(opportunity_type, net_yield_pct),
+                "description": self._get_opportunity_description(
+                    opportunity_type, net_yield_pct, spread_pct, "LOF"
+                ),
                 "direction": "场内溢价" if spread_pct > 0 else "场内折价"
             }
 
@@ -201,24 +205,83 @@ class ArbitrageCalculator:
         else:
             return "none"
 
-    def _get_opportunity_description(self, opportunity_type: str, net_yield_pct: Decimal) -> str:
+    def _get_opportunity_description(
+        self, 
+        opportunity_type: str, 
+        net_yield_pct: Decimal,
+        spread_pct: Decimal = None,
+        fund_type: str = "ETF",
+        purchase_limit: float = None  # 申购限额（万元），None表示未知
+    ) -> str:
         """
-        获取机会描述
-
+        获取套利操作建议描述
+        
         Args:
             opportunity_type: 机会类型
             net_yield_pct: 净收益率
-
+            spread_pct: 价差百分比（正=溢价，负=折价）
+            fund_type: 基金类型
+            purchase_limit: 申购限额（万元）
+            
         Returns:
-            str: 描述文本
+            str: 操作建议描述
         """
-        descriptions = {
-            "excellent": f"优秀套利机会（净收益{net_yield_pct:.2f}%）",
-            "good": f"良好套利机会（净收益{net_yield_pct:.2f}%）",
-            "weak": f"一般套利机会（净收益{net_yield_pct:.2f}%）",
-            "none": "无显著套利机会"
-        }
-        return descriptions.get(opportunity_type, "未知机会类型")
+        if opportunity_type == "none":
+            return "无套利机会"
+        
+        # 判断方向
+        if spread_pct is None:
+            spread_pct = net_yield_pct  # 兼容旧调用
+            
+        is_premium = float(spread_pct) > 0  # 溢价
+        
+        # 生成限购信息
+        if purchase_limit is not None:
+            if purchase_limit >= 100:
+                limit_text = f"限购{int(purchase_limit)}万"
+                tractor_text = "可拖拉机"
+            elif purchase_limit >= 10:
+                limit_text = f"限购{int(purchase_limit)}万"
+                tractor_text = "可小拖"
+            elif purchase_limit > 0:
+                limit_text = f"限购{purchase_limit}万"
+                tractor_text = "不可拖"
+            else:
+                limit_text = "暂停申购"
+                tractor_text = ""
+        else:
+            limit_text = ""
+            tractor_text = ""
+        
+        # 生成操作建议
+        if fund_type.upper() == "ETF":
+            if is_premium:
+                # 溢价：申购→卖出
+                action = "申购后场内卖出"
+                direction = "↑溢价套利"
+            else:
+                # 折价：买入→赎回
+                action = "场内买入后赎回"
+                direction = "↓折价套利"
+        else:  # LOF
+            if is_premium:
+                # 溢价：场外申购→转托管→场内卖出
+                action = "申购转场内卖"
+                direction = "↑溢价"
+            else:
+                # 折价：场内买入→赎回
+                action = "场内买转赎回"
+                direction = "↓折价"
+        
+        # 组合描述
+        parts = [direction, action]
+        if limit_text:
+            parts.append(limit_text)
+        if tractor_text:
+            parts.append(tractor_text)
+        parts.append(f"净收益{float(net_yield_pct):.2f}%")
+        
+        return " | ".join(parts)
 
     def _create_empty_result(self, fund_type: str, nav: Decimal, price: Decimal) -> Dict[str, Any]:
         """

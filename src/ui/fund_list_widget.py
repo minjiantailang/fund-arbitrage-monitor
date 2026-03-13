@@ -7,7 +7,7 @@ from typing import List, Dict, Any
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QHeaderView, QAbstractItemView, QLabel, QLineEdit, QPushButton,
-    QMenu, QMessageBox, QApplication
+    QMenu, QMessageBox, QApplication, QFrame
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QAction, QColor, QBrush, QFont
@@ -25,42 +25,63 @@ class FundListWidget(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.fund_data: List[Dict[str, Any]] = []
+        self.fund_data: List[Dict[str, Any]] = []      # 当前显示的数据
+        self.all_fund_data: List[Dict[str, Any]] = []  # 所有数据缓存
         self._init_ui()
         self._init_table()
 
     def _init_ui(self):
         """初始化UI"""
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(5, 5, 5, 5)
-        main_layout.setSpacing(5)
-
-        # 搜索栏
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        
+        # 外层卡片容器
+        card_frame = QFrame()
+        card_frame.setObjectName("ListCard")
+        inside_layout = QVBoxLayout(card_frame)
+        inside_layout.setContentsMargins(0, 0, 0, 0)
+        inside_layout.setSpacing(0)
+        
+        # 1. 搜索栏 (放在表格上方，或者作为卡片头部)
         search_container = QWidget()
         search_layout = QHBoxLayout(search_container)
-        search_layout.setContentsMargins(0, 0, 0, 0)
-
-        search_label = QLabel("搜索:")
+        search_layout.setContentsMargins(15, 12, 15, 12)
+        
+        search_label = QLabel("基金列表")
+        search_label.setObjectName("ChartTitle") 
         search_layout.addWidget(search_label)
-
+        
+        search_layout.addStretch()
+        
+        # 搜索框美化
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("输入基金代码或名称...")
+        self.search_input.setPlaceholderText("搜索代码或名称")
+        self.search_input.setFixedWidth(200)
         self.search_input.textChanged.connect(self._on_search_text_changed)
         search_layout.addWidget(self.search_input)
-
-        clear_button = QPushButton("清空")
-        clear_button.clicked.connect(self._on_clear_search)
-        search_layout.addWidget(clear_button)
-
-        main_layout.addWidget(search_container)
-
-        # 基金表格
+        
+        inside_layout.addWidget(search_container)
+        
+        # 2. 分隔线
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setFrameShadow(QFrame.Shadow.Plain)
+        line.setStyleSheet("background-color: #E8E8E8; border: none; min-height: 1px; max-height: 1px;")
+        inside_layout.addWidget(line)
+        
+        # 3. 基金表格
         self.table_widget = QTableWidget()
+        self.table_widget.setFrameShape(QFrame.Shape.NoFrame) # 去除表格自带边框
         self.table_widget.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        
+        inside_layout.addWidget(self.table_widget)
+        
+        main_layout.addWidget(card_frame)
         self.table_widget.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table_widget.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table_widget.setAlternatingRowColors(True)
-        self.table_widget.setSortingEnabled(True)
+        self.table_widget.verticalHeader().hide()
+        self.table_widget.setSortingEnabled(False)  # 禁用前端自动排序，完全依赖后端排序
         self.table_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table_widget.customContextMenuRequested.connect(self._on_context_menu)
         self.table_widget.itemDoubleClicked.connect(self._on_item_double_clicked)
@@ -86,15 +107,12 @@ class FundListWidget(QWidget):
     def _init_table(self):
         """初始化表格"""
         columns = [
-            ("code", "代码", 80),
-            ("name", "名称", 150),
-            ("type", "类型", 60),
-            ("nav", "净值", 80),
-            ("price", "价格", 80),
-            ("spread_pct", "价差%", 80),
-            ("yield_pct", "收益率%", 80),
-            ("opportunity_level", "机会等级", 100),
-            ("description", "描述", 200),
+            ("index", "序号", 60),
+            ("code", "代码", 110),     # 增加宽度
+            ("name", "名称", 160),     # 设为互动调整，给一个合理初始值
+            ("nav", "净值", 100),      # 增加宽度
+            ("price", "价格", 100),    # 增加宽度
+            ("spread_pct", "价差%", 120), # 增加宽度
         ]
 
         self.table_widget.setColumnCount(len(columns))
@@ -103,9 +121,42 @@ class FundListWidget(QWidget):
             self.table_widget.setHorizontalHeaderItem(i, item)
             self.table_widget.setColumnWidth(i, width)
 
-        # 设置表头可拉伸
+        # 设置表头
         header = self.table_widget.horizontalHeader()
-        header.setSectionResizeMode(len(columns) - 1, QHeaderView.ResizeMode.Stretch)
+        
+        # 1. 允许用户自由调整所有列宽 (关键修改)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        
+        # 2. 允许用户拖动列顺序 (满足"易于操作")
+        header.setSectionsMovable(True)
+        
+        # 3. 最后一列自动拉伸填充剩余空间 (防止右侧留白)
+        header.setStretchLastSection(True)
+        
+        # 4. 设置最小列宽，防止误操作缩得太小
+        header.setMinimumSectionSize(60)
+        
+        # 5. 增加表头高度和样式，使其更明显
+        header.setDefaultSectionSize(40)
+        header.setMinimumHeight(40)
+        
+        # 显式设置表头样式，增加边框和背景，使其看起来"可操作"
+        header.setStyleSheet("""
+            QHeaderView::section {
+                background-color: #F5F7FA;
+                color: #333333;
+                padding: 4px;
+                border: 1px solid #DCDCDC;
+                border-bottom: 2px solid #C0C0C0;
+                font-weight: bold;
+                font-size: 13px;
+            }
+            QHeaderView::section:hover {
+                background-color: #E6E8EB;
+            }
+        """)
+        
+        header.setSortIndicatorShown(False)
 
     def update_fund_data(self, fund_data: List[Dict[str, Any]]):
         """
@@ -114,9 +165,11 @@ class FundListWidget(QWidget):
         Args:
             fund_data: 基金数据列表
         """
-        self.fund_data = fund_data
-        self._populate_table()
-        self._update_status()
+        self.all_fund_data = fund_data
+        # 自动应用当前筛选
+        self._apply_filter()
+        # 应用当前的搜索过滤
+        self._apply_filter()
 
     def _populate_table(self):
         """填充表格数据"""
@@ -124,110 +177,79 @@ class FundListWidget(QWidget):
         self.table_widget.setRowCount(len(self.fund_data))
 
         for row, fund in enumerate(self.fund_data):
-            # 代码
-            code_item = QTableWidgetItem(fund.get("code", ""))
-            code_item.setData(Qt.ItemDataRole.UserRole, fund.get("code"))
-            self.table_widget.setItem(row, 0, code_item)
+            # 序号 (index: 0)
+            index_item = QTableWidgetItem(str(row + 1))
+            index_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table_widget.setItem(row, 0, index_item)
 
-            # 名称
-            name_item = QTableWidgetItem(fund.get("name", ""))
-            self.table_widget.setItem(row, 1, name_item)
+            # 代码 (index: 1)
+            code_val = fund.get("code")
+            code_str = str(code_val) if code_val is not None else ""
+            code_item = QTableWidgetItem(code_str)
+            code_item.setData(Qt.ItemDataRole.UserRole, code_val)
+            code_item.setToolTip(code_str)
+            self.table_widget.setItem(row, 1, code_item)
 
-            # 类型
-            type_item = QTableWidgetItem(fund.get("type", ""))
-            self.table_widget.setItem(row, 2, type_item)
+            # 名称 (index: 2)
+            name_val = fund.get("name")
+            name_str = str(name_val) if name_val is not None else ""
+            name_item = QTableWidgetItem(name_str)
+            name_item.setToolTip(name_str)
+            self.table_widget.setItem(row, 2, name_item)
 
-            # 净值
+            # 净值 (index: 3)
             nav = fund.get("nav")
-            nav_item = QTableWidgetItem(f"{nav:.3f}" if nav is not None else "--")
+            nav_str = f"{nav:.3f}" if nav is not None else "--"
+            nav_item = QTableWidgetItem(nav_str)
             nav_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            nav_item.setToolTip(nav_str)
             self.table_widget.setItem(row, 3, nav_item)
 
-            # 价格
+            # 价格 (index: 4)
             price = fund.get("price")
-            price_item = QTableWidgetItem(f"{price:.3f}" if price is not None else "--")
+            price_str = f"{price:.3f}" if price is not None else "--"
+            price_item = QTableWidgetItem(price_str)
             price_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            price_item.setToolTip(price_str)
             self.table_widget.setItem(row, 4, price_item)
 
-            # 价差%
+            # 价差% (index: 5)
             spread_pct = fund.get("spread_pct")
-            spread_item = QTableWidgetItem(f"{spread_pct:.2f}%" if spread_pct is not None else "--")
+            spread_str = f"{spread_pct:.2f}%" if spread_pct is not None else "--"
+            spread_item = QTableWidgetItem(spread_str)
             spread_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             self._colorize_spread_item(spread_item, spread_pct)
+            spread_item.setToolTip(spread_str)
             self.table_widget.setItem(row, 5, spread_item)
-
-            # 收益率%
-            yield_pct = fund.get("yield_pct")
-            yield_item = QTableWidgetItem(f"{yield_pct:.2f}%" if yield_pct is not None else "--")
-            yield_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            self._colorize_yield_item(yield_item, yield_pct)
-            self.table_widget.setItem(row, 6, yield_item)
-
-            # 机会等级
-            opportunity_level = fund.get("opportunity_level", "")
-            level_item = QTableWidgetItem(self._get_opportunity_level_text(opportunity_level))
-            self._colorize_opportunity_item(level_item, opportunity_level)
-            self.table_widget.setItem(row, 7, level_item)
-
-            # 描述
-            description = fund.get("description", "")
-            desc_item = QTableWidgetItem(description)
-            self.table_widget.setItem(row, 8, desc_item)
-
-        self.table_widget.setSortingEnabled(True)  # 重新启用排序
-        self.table_widget.sortByColumn(5, Qt.SortOrder.DescendingOrder)  # 默认按价差降序排序
 
     def _colorize_spread_item(self, item: QTableWidgetItem, spread_pct: float):
         """根据价差着色"""
         if spread_pct is None:
             return
+        
+        from src.ui.styles import Colors, Thresholds
 
-        if spread_pct > 1.0:
-            item.setForeground(QBrush(QColor("#F44336")))  # 红色 - 高溢价
-        elif spread_pct > 0.5:
-            item.setForeground(QBrush(QColor("#FF9800")))  # 橙色 - 中等溢价
+        if spread_pct > Thresholds.SPREAD_HIGH_PREMIUM:
+            item.setForeground(QBrush(QColor(Colors.PREMIUM_HIGH)))
+        elif spread_pct > Thresholds.SPREAD_MEDIUM_PREMIUM:
+            item.setForeground(QBrush(QColor(Colors.PREMIUM_MEDIUM)))
         elif spread_pct > 0:
-            item.setForeground(QBrush(QColor("#4CAF50")))  # 绿色 - 低溢价
-        elif spread_pct < -1.0:
-            item.setForeground(QBrush(QColor("#2196F3")))  # 蓝色 - 高折价
-        elif spread_pct < -0.5:
-            item.setForeground(QBrush(QColor("#03A9F4")))  # 浅蓝 - 中等折价
+            item.setForeground(QBrush(QColor(Colors.PREMIUM_LOW)))
+        elif spread_pct < Thresholds.SPREAD_HIGH_DISCOUNT:
+            item.setForeground(QBrush(QColor(Colors.DISCOUNT_HIGH)))
+        elif spread_pct < Thresholds.SPREAD_MEDIUM_DISCOUNT:
+            item.setForeground(QBrush(QColor(Colors.DISCOUNT_MEDIUM)))
         elif spread_pct < 0:
-            item.setForeground(QBrush(QColor("#00BCD4")))  # 青色 - 低折价
+            item.setForeground(QBrush(QColor(Colors.DISCOUNT_LOW)))
 
     def _colorize_yield_item(self, item: QTableWidgetItem, yield_pct: float):
         """根据收益率着色"""
-        if yield_pct is None:
-            return
-
-        if yield_pct > 1.0:
-            item.setForeground(QBrush(QColor("#F44336")))  # 红色 - 高收益
-            font = QFont()
-            font.setBold(True)
-            item.setFont(font)
-        elif yield_pct > 0.5:
-            item.setForeground(QBrush(QColor("#FF9800")))  # 橙色 - 中等收益
-        elif yield_pct > 0.2:
-            item.setForeground(QBrush(QColor("#4CAF50")))  # 绿色 - 低收益
-        else:
-            item.setForeground(QBrush(QColor("#757575")))  # 灰色 - 无收益
+        # 已移除收益率列，保留方法以防未来恢复，或可删除
+        pass
 
     def _colorize_opportunity_item(self, item: QTableWidgetItem, opportunity_level: str):
         """根据机会等级着色"""
-        colors = {
-            "excellent": "#F44336",  # 红色 - 优秀
-            "good": "#FF9800",       # 橙色 - 良好
-            "weak": "#4CAF50",       # 绿色 - 一般
-            "none": "#757575",       # 灰色 - 无
-        }
-
-        color = colors.get(opportunity_level, "#757575")
-        item.setForeground(QBrush(QColor(color)))
-
-        if opportunity_level in ["excellent", "good"]:
-            font = QFont()
-            font.setBold(True)
-            item.setFont(font)
+        pass
 
     def _get_opportunity_level_text(self, level: str) -> str:
         """获取机会等级文本"""
@@ -241,6 +263,8 @@ class FundListWidget(QWidget):
 
     def _update_status(self):
         """更新状态"""
+        from src.ui.styles import Colors
+        
         total_count = len(self.fund_data)
         opportunity_count = sum(1 for f in self.fund_data if f.get("is_opportunity", False))
 
@@ -248,48 +272,37 @@ class FundListWidget(QWidget):
 
         if opportunity_count > 0:
             self.status_label.setText(f"发现 {opportunity_count} 个套利机会")
-            self.status_label.setStyleSheet("color: #F44336; font-weight: bold;")
+            self.status_label.setStyleSheet(f"color: {Colors.PREMIUM_HIGH}; font-weight: bold;")
         else:
             self.status_label.setText("未发现套利机会")
-            self.status_label.setStyleSheet("color: #757575;")
+            self.status_label.setStyleSheet(f"color: {Colors.NEUTRAL};")
+
+    def _apply_filter(self):
+        """应用筛选"""
+        text = self.search_input.text().strip().lower()
+        
+        if not text:
+            self.fund_data = self.all_fund_data
+        else:
+            filtered = []
+            for fund in self.all_fund_data:
+                code = str(fund.get("code", "")).lower()
+                name = str(fund.get("name", "")).lower()
+                if text in code or text in name:
+                    filtered.append(fund)
+            self.fund_data = filtered
+            
+        self._populate_table()
+        self._update_status()
 
     def _on_search_text_changed(self, text: str):
         """处理搜索文本变化"""
-        if not text.strip():
-            self._populate_table()
-            return
-
-        search_text = text.strip().lower()
-        filtered_data = []
-
-        for fund in self.fund_data:
-            code = fund.get("code", "").lower()
-            name = fund.get("name", "").lower()
-
-            if search_text in code or search_text in name:
-                filtered_data.append(fund)
-
-        # 临时显示筛选结果
-        self._display_filtered_data(filtered_data)
-
-    def _display_filtered_data(self, filtered_data: List[Dict[str, Any]]):
-        """显示筛选后的数据"""
-        self.table_widget.setSortingEnabled(False)
-        self.table_widget.setRowCount(len(filtered_data))
-
-        for row, fund in enumerate(filtered_data):
-            for col in range(self.table_widget.columnCount()):
-                original_row = self.fund_data.index(fund)
-                item = self.table_widget.item(original_row, col).clone()
-                self.table_widget.setItem(row, col, item)
-
-        self.table_widget.setSortingEnabled(True)
-        self.count_label.setText(f"筛选: {len(filtered_data)} / {len(self.fund_data)}")
+        self._apply_filter()
 
     def _on_clear_search(self):
         """清空搜索"""
         self.search_input.clear()
-        self._populate_table()
+        # textChanged 信号会触发筛选
 
     def _on_context_menu(self, position):
         """显示右键菜单"""
@@ -298,12 +311,14 @@ class FundListWidget(QWidget):
             return
 
         row = item.row()
-        fund_code_item = self.table_widget.item(row, 0)
+        # 注意：代码现在是第1列 (index 1)
+        fund_code_item = self.table_widget.item(row, 1)
         if not fund_code_item:
             return
 
         fund_code = fund_code_item.data(Qt.ItemDataRole.UserRole)
-        fund_name_item = self.table_widget.item(row, 1)
+        # 名称是第2列 (index 2)
+        fund_name_item = self.table_widget.item(row, 2)
         fund_name = fund_name_item.text() if fund_name_item else ""
 
         menu = QMenu(self)
@@ -357,7 +372,8 @@ class FundListWidget(QWidget):
     def _on_item_double_clicked(self, item):
         """处理双击事件"""
         row = item.row()
-        fund_code_item = self.table_widget.item(row, 0)
+        # 代码在第1列
+        fund_code_item = self.table_widget.item(row, 1)
         if fund_code_item:
             fund_code = fund_code_item.data(Qt.ItemDataRole.UserRole)
             self.fund_double_clicked.emit(fund_code)
@@ -369,7 +385,8 @@ class FundListWidget(QWidget):
             return
 
         row = selected_items[0].row()
-        fund_code_item = self.table_widget.item(row, 0)
+        # 代码在第1列
+        fund_code_item = self.table_widget.item(row, 1)
         if fund_code_item:
             fund_code = fund_code_item.data(Qt.ItemDataRole.UserRole)
             self.fund_selected.emit(fund_code)
@@ -389,7 +406,8 @@ class FundListWidget(QWidget):
             return ""
 
         row = selected_items[0].row()
-        fund_code_item = self.table_widget.item(row, 0)
+        # 代码在第1列
+        fund_code_item = self.table_widget.item(row, 1)
         if fund_code_item:
             return fund_code_item.data(Qt.ItemDataRole.UserRole)
         return ""

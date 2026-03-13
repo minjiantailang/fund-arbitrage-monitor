@@ -4,3 +4,11 @@ __pycache__/
 .env
 *.log
 .DS_Store
+venv/
+.coverage
+htmlcov/
+build/
+dist/
+*.csv
+.pytest_cache/
+*.spec
