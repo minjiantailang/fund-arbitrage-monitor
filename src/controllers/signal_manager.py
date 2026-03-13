@@ -202,7 +202,7 @@ class SignalManager(QObject):
 
     def clear_all_connections(self):
         """清除所有连接"""
-        for signal_name in list(self._signal_handlers.keys()):
+        for signal_name in list(self._handlers.keys()):
             self.disconnect_signal(signal_name, None)
         logger.info("已清除所有信号连接")
 
@@ -217,10 +217,10 @@ class SignalManager(QObject):
             int: 连接数量
         """
         if signal_name:
-            return len(self._signal_handlers.get(signal_name, []))
+            return len(self._handlers.get(signal_name, []))
         else:
             total = 0
-            for handlers in self._signal_handlers.values():
+            for handlers in self._handlers.values():
                 total += len(handlers)
             return total
 

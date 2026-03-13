@@ -6,7 +6,7 @@ import time
 from decimal import Decimal
 from datetime import datetime
 from src.models.database import Database
-from src.models.data_fetcher import MockDataFetcher
+from tests.mock_fetcher import MockDataFetcher
 
 
 pytestmark = pytest.mark.integration

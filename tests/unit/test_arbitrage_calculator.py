@@ -247,14 +247,17 @@ class TestArbitrageCalculator:
         calculator = ArbitrageCalculator()
 
         # 测试各种机会类型的描述
-        excellent_desc = calculator._get_opportunity_description("excellent", Decimal("1.5"))
-        assert "优秀" in excellent_desc
+        excellent_desc = calculator._get_opportunity_description("excellent", Decimal("1.5"), Decimal("2.0"), "ETF")
+        assert "↑溢价套利" in excellent_desc
+        assert "净收益1.50%" in excellent_desc
 
-        good_desc = calculator._get_opportunity_description("good", Decimal("0.7"))
-        assert "良好" in good_desc
+        good_desc = calculator._get_opportunity_description("good", Decimal("0.7"), Decimal("1.0"), "LOF")
+        assert "↑溢价" in good_desc
+        assert "净收益0.70%" in good_desc
 
-        weak_desc = calculator._get_opportunity_description("weak", Decimal("0.3"))
-        assert "一般" in weak_desc
+        weak_desc = calculator._get_opportunity_description("weak", Decimal("0.3"), Decimal("-0.5"), "ETF")
+        assert "↓折价套利" in weak_desc
+        assert "净收益0.30%" in weak_desc
 
         none_desc = calculator._get_opportunity_description("none", Decimal("0.1"))
         assert "无" in none_desc

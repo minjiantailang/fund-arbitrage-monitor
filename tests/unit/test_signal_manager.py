@@ -12,7 +12,7 @@ class TestSignalManager:
         """测试初始化"""
         from src.controllers.signal_manager import SignalManager
         manager = SignalManager()
-        assert manager._signal_handlers == {}
+        assert manager._handlers == {}
 
     def test_connect_signal(self):
         """测试连接信号"""
@@ -23,8 +23,8 @@ class TestSignalManager:
         handler.__name__ = "test_handler"
         manager.connect_signal("data_refreshed", handler)
 
-        assert "data_refreshed" in manager._signal_handlers
-        assert handler in manager._signal_handlers["data_refreshed"]
+        assert "data_refreshed" in manager._handlers
+        assert handler in manager._handlers["data_refreshed"]
 
     def test_connect_invalid_signal(self):
         """测试连接不存在的信号"""
@@ -48,7 +48,7 @@ class TestSignalManager:
 
         # 断开特定处理器
         manager.disconnect_signal("data_refreshed", handler)
-        assert handler not in manager._signal_handlers.get("data_refreshed", [])
+        assert handler not in manager._handlers.get("data_refreshed", [])
 
     def test_disconnect_all_handlers(self):
         """测试断开所有处理器"""
@@ -65,7 +65,7 @@ class TestSignalManager:
 
         # 断开所有处理器
         manager.disconnect_signal("data_refreshed", None)
-        assert len(manager._signal_handlers.get("data_refreshed", [])) == 0
+        assert len(manager._handlers.get("data_refreshed", [])) == 0
 
     def test_disconnect_nonexistent_signal(self):
         """测试断开不存在的信号"""
@@ -175,8 +175,8 @@ class TestSignalManager:
 
         manager.clear_all_connections()
 
-        assert len(manager._signal_handlers.get("data_refreshed", [])) == 0
-        assert len(manager._signal_handlers.get("status_changed", [])) == 0
+        assert len(manager._handlers.get("data_refreshed", [])) == 0
+        assert len(manager._handlers.get("status_changed", [])) == 0
 
     def test_get_connection_count_specific(self):
         """测试获取特定信号连接数量"""

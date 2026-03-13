@@ -6,9 +6,11 @@ import time
 from decimal import Decimal
 from unittest.mock import Mock, patch
 from src.models.data_fetcher import (
-    MockDataFetcher, EastMoneyDataFetcher, DataFetcher,
+    EastMoneyDataFetcher, DataFetcher,
     DataFetcherFactory, get_data_fetcher
 )
+
+from tests.mock_fetcher import MockDataFetcher
 
 
 class TestDataFetcher:
@@ -189,15 +191,15 @@ class TestMockDataFetcher:
 
 
 
-
-
 class TestDataFetcherFactory:
     """数据获取器工厂测试"""
 
     def test_create_mock_fetcher(self):
-        """测试创建模拟获取器"""
+        """测试创建获取器"""
+        # 重置单例
+        EastMoneyDataFetcher._instance = None
         fetcher = DataFetcherFactory.create_fetcher("mock")
-        assert isinstance(fetcher, MockDataFetcher)
+        assert isinstance(fetcher, EastMoneyDataFetcher)
 
     def test_create_eastmoney_fetcher(self):
         """测试创建东方财富获取器"""
@@ -206,13 +208,17 @@ class TestDataFetcherFactory:
 
     def test_create_default_fetcher(self):
         """测试创建默认获取器"""
+        # 重置单例
+        EastMoneyDataFetcher._instance = None
         fetcher = DataFetcherFactory.create_fetcher("unknown")
-        # 默认应该返回MockDataFetcher
-        assert isinstance(fetcher, MockDataFetcher)
+        # 生产环境 DataFetcherFactory 目前总是返回 EastMoneyDataFetcher
+        assert isinstance(fetcher, EastMoneyDataFetcher)
 
     def test_create_with_cache_duration(self):
         """测试创建带缓存时长的获取器"""
-        fetcher = DataFetcherFactory.create_fetcher("mock", cache_duration=120)
+        # 重置单例
+        EastMoneyDataFetcher._instance = None
+        fetcher = DataFetcherFactory.create_fetcher("eastmoney", cache_duration=120)
         assert fetcher.cache_duration == 120
 
 
